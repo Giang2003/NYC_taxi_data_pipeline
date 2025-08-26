@@ -1,1 +1,15 @@
-*.parquet
+**/__pycache__/
+
+/data/*
+/jars/*
+**/logs/
+test.py
+/airflow/logs/*
+
+# Exclude specific files as requested
+AIRFLOW_GUIDE.md
+STREAMING_GUIDE.md
+.env
+
+# Exclude data directory
+data/

@@ -7,21 +7,33 @@ utils_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'util
 sys.path.append(utils_path)
 from helpers import load_cfg
 from minio_utils import MinIOClient
+
+###############################################
+# Parameters & Arguments
+###############################################
 CFG_FILE = "./config/datalake.yaml"
 YEARS = ["2021", "2022", "2023"]
+###############################################
 
+
+###############################################
+# Main
+###############################################
 def extract_load(endpoint_url, access_key, secret_key):
-#tạo 1 client trên minio => upload file từ local lên minio 
     cfg = load_cfg(CFG_FILE)
     datalake_cfg = cfg["datalake"]
-    nyc_data_cfg = cfg["nyc_data"] 
+    nyc_data_cfg = cfg["nyc_data"]
+
     client = MinIOClient(
-        endpoint_url = endpoint_url, 
-        access_key = access_key,
-        secret_key = secret_key
+        endpoint_url=endpoint_url,
+        access_key=access_key,
+        secret_key=secret_key
     )
+
     client.create_bucket(datalake_cfg["bucket_name_1"])
-    for year in YEARS: 
+
+    for year in YEARS:
+        # Upload files
         all_fps = glob(os.path.join(nyc_data_cfg["folder_path"], year, "*.parquet"))
 
         for fp in all_fps:
@@ -31,7 +43,10 @@ def extract_load(endpoint_url, access_key, secret_key):
                 bucket_name=datalake_cfg["bucket_name_1"],
                 object_name=os.path.join(datalake_cfg["folder_name"], os.path.basename(fp)),
                 file_path=fp,
-            ) 
+            )
+###############################################
+
+
 if __name__ == "__main__":
     cfg = load_cfg(CFG_FILE)
     datalake_cfg = cfg["datalake"]
