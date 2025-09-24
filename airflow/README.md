@@ -1,8 +1,8 @@
 # Airflow Guide – NYC Taxi Data Pipeline
 
 This folder contains the Airflow setup and DAGs to orchestrate the NYC Taxi batch pipeline (extract → transform → load to DW). There are two DAGs:
-- `dags/elt_pipeline_dag.py`: original version
-- `dags/elt_pipeline_optimized_dag.py`: optimized end-to-end batch job
+- `dags/elt_pipeline_dag.py`: original ELT (extract → transform → optional delta convert)
+- `dags/elt_pipeline_optimized_dag.py`: optimized ELT including Spark batch to DW
 
 ## Prerequisites
 - Docker Desktop (or Docker Engine) running
@@ -37,10 +37,11 @@ docker compose -f airflow-docker-compose.yaml down
 - `elt_pipeline_dag.py` steps:
   1) Extract & load raw data to MinIO (`scripts/extract_load.py`)
   2) Transform raw → processed in MinIO (`scripts/transform_data.py`)
+  3) (Optional) Convert processed → delta (`scripts/convert_to_delta.py`)
 - `elt_pipeline_optimized_dag.py` steps:
   1) Extract & load to MinIO
-  2) Transform in MinIO
-  3) Batch processing to DW (`batch_processing_optimized.py`)
+  2) Transform in MinIO (process files one-by-one to avoid OOM)
+  3) Batch processing to DW (`batch_processing_optimized.py` via BashOperator)
 
 DAG files live in `airflow/dags/` and are mounted into the Airflow containers by the compose file.
 
