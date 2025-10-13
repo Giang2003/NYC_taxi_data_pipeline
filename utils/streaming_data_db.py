@@ -3,6 +3,7 @@ import sys
 from time import sleep
 from pyarrow.parquet import ParquetFile
 import pyarrow as pa 
+import pandas as pd
 
 from dotenv import load_dotenv
 load_dotenv(".env")
@@ -38,49 +39,46 @@ def main():
         # Fail fast to avoid using undefined 'columns'
         raise SystemExit(1)
 
-    # Loop over all columns and create random values
+    # Read a batch of rows
     pf = ParquetFile(PARQUET_FILE) 
     first_n_rows = next(pf.iter_batches(batch_size = NUM_ROWS)) 
     df = pa.Table.from_batches([first_n_rows]).to_pandas() 
-    df['tpep_pickup_datetime'] = df['tpep_pickup_datetime'].astype(dtype='str')
-    df['tpep_dropoff_datetime'] = df['tpep_dropoff_datetime'].astype(dtype='str')
 
+    # Normalize datetime columns to strings to avoid server-side parsing ambiguity
+    for col in ["tpep_pickup_datetime", "tpep_dropoff_datetime"]:
+        if col in df.columns:
+            df[col] = df[col].astype(dtype='str')
+
+    # Build batch insert base SQL for execute_values
+
+    # Prepare values with safe access for optional fields
+    values_list = []
     for _, row in df.iterrows():
+        # Safe label-based access for Pandas Series (avoid positional indexing misalignment)
+        # Convert NaN to None so psycopg2 inserts NULL
+        params = tuple(
+            (None if (col not in row.index or pd.isna(row[col])) else row[col])
+            for col in columns
+        )
+        values_list.append(params)
 
-        # Insert data
-        query = f"""
-            insert into {TABLE_NAME} ({",".join(columns)})
-            values {tuple(row)}
-        """
-        print(f"Sent: {format_record(row)}")
-        pc.execute_query(query)
-        print("-"*100)
-        sleep(2)
+    # Log a small sample of payloads being sent
+    print(f"Sample payload: {values_list[0] if values_list else '[]'}")
+
+    # Batch insert using execute_values for speed
+    # Note: execute_values needs a base query like INSERT INTO ... VALUES %s
+    base_sql = f"INSERT INTO {TABLE_NAME} ({','.join(columns)}) VALUES %s"
+    pc.execute_values(base_sql, values_list)
 
 def format_record(row):
-    taxi_res = {
-        'VendorID': row['VendorID'],
-        'RatecodeID': row['RatecodeID'],
-        'DOLocationID': row['DOLocationID'],
-        'PULocationID': row['PULocationID'],
-        'payment_type': row['payment_type'],
-        'tpep_dropoff_datetime': str(row['tpep_dropoff_datetime']),
-        'tpep_pickup_datetime': str(row['tpep_pickup_datetime']),
-        'passenger_count': row['passenger_count'],
-        'trip_distance': row['trip_distance'],
-        'extra': row['extra'],
-        'mta_tax': row['mta_tax'],
-        'fare_amount': row['fare_amount'],
-        'tip_amount': row['tip_amount'],
-        'tolls_amount': row['tolls_amount'],
-        'total_amount': row['total_amount'],
-        'improvement_surcharge': row['improvement_surcharge'],
-        'congestion_surcharge': row['congestion_surcharge'],
-        'Airport_fee': row['Airport_fee'],
-    }
-    return taxi_res
+    # Deprecated: keep for backward compatibility if needed; prefer logging params tuples
+    try:
+        return tuple(row.values())
+    except Exception:
+        return ()
 ###############################################
 
 
 if __name__ == "__main__":
     main()
+

@@ -5,10 +5,9 @@ import traceback
 import logging
 import dotenv
 import json
-from time import sleep
 dotenv.load_dotenv(".env")
 
-from pyspark import SparkConf, SparkContext
+ 
 
 utils_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'utils'))
 sys.path.append(utils_path)
@@ -47,7 +46,8 @@ def create_spark_session():
     try: 
         spark = (SparkSession.builder.config("spark.executor.memory", MEMORY) \
                         .config(
-                            "spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.0.0,org.apache.hadoop:hadoop-aws:2.8.2"
+                            "spark.jars.packages", 
+                            "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262"
                         )
                         .config("spark.hadoop.fs.s3a.access.key", MINIO_ACCESS_KEY)
                         .config("spark.hadoop.fs.s3a.secret.key", MINIO_SECRET_KEY)
@@ -86,6 +86,7 @@ def create_initial_dataframe(spark_session):
         logging.info("Initial dataframe created successfully!")
     except Exception as e:
         logging.warning(f"Initial dataframe could not be created due to exception: {e}")
+        return None
 
     return df
 
@@ -94,18 +95,23 @@ def create_final_dataframe(df, spark_session):
     """
         Modifies the initial dataframe, and creates the final dataframe
     """
-    from pyspark.sql.types import StructType, StructField, IntegerType, StringType, TimestampNTZType, DoubleType, LongType
-    from pyspark.sql.functions import col, from_json, udf
+    from pyspark.sql.types import StructType, StructField, IntegerType, StringType, TimestampType, DoubleType, LongType
+    from pyspark.sql.functions import col, from_json, udf, to_date
 
     # Load the configuration file
-    with open('./stream_processing/schema_config.json', 'r') as f:
+    cfg_path = os.path.join(os.path.dirname(__file__), "schema_config.json")
+    if not os.path.exists(cfg_path):
+        logging.error("Schema config not found!")
+        sys.exit(1)
+    with open(cfg_path, 'r') as f:
         config = json.load(f)
 
     # Define a mapping from type names to PySpark types
     type_mapping = {
         "IntegerType": IntegerType(),
         "StringType": StringType(),
-        "TimestampNTZType": TimestampNTZType(),
+        "TimestampType": TimestampType(),
+        "TimestampNTZType": TimestampType(),
         "DoubleType": DoubleType(),
         "LongType": LongType()
     }
@@ -131,13 +137,39 @@ def create_final_dataframe(df, spark_session):
                 .select(from_json(col("json"), data_schema).alias("data")) \
                 .select("data.payload.after.*")
 
-    parsed_df = parsed_df \
-        .withColumn("tpep_pickup_datetime", (col("tpep_pickup_datetime") / 1000000).cast("timestamp")) \
-        .withColumn("tpep_dropoff_datetime", (col("tpep_dropoff_datetime") / 1000000).cast("timestamp"))
+    # Determine timestamp parsing behavior based on schema config
+    pickup_cfg = next((f for f in config["fields"] if f["name"] == "tpep_pickup_datetime"), None)
+    dropoff_cfg = next((f for f in config["fields"] if f["name"] == "tpep_dropoff_datetime"), None)
+
+    # Cast pickup timestamp
+    if pickup_cfg is not None and pickup_cfg.get("type") == "LongType":
+        parsed_df = parsed_df.withColumn(
+            "tpep_pickup_datetime",
+            (col("tpep_pickup_datetime") / 1000000).cast("timestamp")
+        )
+    else:
+        parsed_df = parsed_df.withColumn(
+            "tpep_pickup_datetime",
+            col("tpep_pickup_datetime").cast("timestamp")
+        )
+
+    # Cast dropoff timestamp
+    if dropoff_cfg is not None and dropoff_cfg.get("type") == "LongType":
+        parsed_df = parsed_df.withColumn(
+            "tpep_dropoff_datetime",
+            (col("tpep_dropoff_datetime") / 1000000).cast("timestamp")
+        )
+    else:
+        parsed_df = parsed_df.withColumn(
+            "tpep_dropoff_datetime",
+            col("tpep_dropoff_datetime").cast("timestamp")
+        )
+
+    parsed_df = parsed_df.withColumn("pickup_date", to_date(col("tpep_pickup_datetime")))
 
     parsed_df.createOrReplaceTempView("nyc_taxi_view")
 
-    df_final = spark.sql("""
+    df_final = spark_session.sql("""
         SELECT
             * 
         FROM nyc_taxi_view
@@ -157,6 +189,8 @@ def start_streaming(df):
                         .outputMode("append") \
                         .option("path", f"s3a://{BUCKET_NAME}/stream/") \
                         .option("checkpointLocation", f"s3a://{BUCKET_NAME}/stream/checkpoint") \
+                        .partitionBy("pickup_date") \
+                        .trigger(processingTime="10 seconds") \
                         .start() 
     return stream_query.awaitTermination()
 ###############################################
@@ -166,8 +200,23 @@ def start_streaming(df):
 # Main
 ###############################################
 if __name__ == '__main__':
-    spark = create_spark_session()
-    df = create_initial_dataframe(spark)
-    df_final = create_final_dataframe(df, spark)
-    start_streaming(df_final)
+    spark = None
+    try:
+        spark = create_spark_session()
+        df = create_initial_dataframe(spark)
+        if df is None:
+            logging.error("Initial streaming DataFrame is None. Exiting...")
+            sys.exit(1)
+        df_final = create_final_dataframe(df, spark)
+        if df_final is None:
+            logging.error("Final streaming DataFrame is None. Exiting...")
+            sys.exit(1)
+        start_streaming(df_final)
+    finally:
+        try:
+            if spark is not None:
+                spark.stop()
+        except Exception:
+            pass
 ###############################################
+

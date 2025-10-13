@@ -100,14 +100,9 @@ def process(df, file):
         )
 
     # fix data type in columns 'payment_type', 'dolocationid', 'pulocationid', 'vendorid'
-    if "payment_type" in df.columns:
-        df["payment_type"] = df["payment_type"].astype(int)
-    if "dolocationid" in df.columns:
-        df["dolocationid"] = df["dolocationid"].astype(int)
-    if "pulocationid" in df.columns:
-        df["pulocationid"] = df["pulocationid"].astype(int)
-    if "vendorid" in df.columns:
-        df["vendorid"] = df["vendorid"].astype(int)
+    for c in ["payment_type", "dolocationid", "pulocationid", "vendorid"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").astype("Int64")
 
     # drop column 'fee'
     if "fee" in df.columns:

@@ -1,5 +1,6 @@
 import pandas as pd
 import psycopg2
+import psycopg2.extras
 from sqlalchemy import create_engine
 
 
@@ -31,14 +32,29 @@ class PostgresSQLClient:
         # Creating a cursor object using the cursor() method
         return conn
 
-    def execute_query(self, query):
+    def execute_query(self, query, params=None):
         conn = self.create_conn()
-        cursor = conn.cursor()
-        cursor.execute(query)
-        print(f"Query has been executed successfully!")
-        conn.commit()
-        # Closing the connection
-        conn.close()
+        try:
+            with conn:
+                with conn.cursor() as cursor:
+                    if params is not None:
+                        cursor.execute(query, params)
+                    else:
+                        cursor.execute(query)
+            print(f"Query has been executed successfully!")
+        finally:
+            conn.close()
+
+    def execute_values(self, query, values_list):
+        """Execute batch insert using psycopg2.extras.execute_values."""
+        conn = self.create_conn()
+        try:
+            with conn:
+                with conn.cursor() as cursor:
+                    psycopg2.extras.execute_values(cursor, query, values_list)
+            print("Batch insert executed successfully!")
+        finally:
+            conn.close()
 
     def get_columns(self, table_name):
         """Return list of column names for the given table using information_schema."""

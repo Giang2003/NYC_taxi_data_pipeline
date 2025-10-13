@@ -13,3 +13,16 @@ STREAMING_GUIDE.md
 
 # Exclude data directory
 data/
+
+# Ignore OS files
+.DS_Store
+**/.DS_Store
+
+# Ignore Python virtual environment
+venv/
+
+# Ignore dbt build outputs
+nyc_taxi/target/
+
+# Great Expectations uncommitted local data
+data_validation/gx/uncommitted/

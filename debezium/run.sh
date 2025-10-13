@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 cmd=$1
 
 usage() {
@@ -24,7 +25,7 @@ case $cmd in
         else
             echo "Registering a new connector from $2"
             # Assign a connector config path such as: kafka_connect_jdbc/configs/connect-timescaledb-sink.json
-            curl -i -X POST -H "Accept:application/json" -H 'Content-Type: application/json' http://localhost:8083/connectors -d @$2
+            curl -i -X POST -H "Accept:application/json" -H 'Content-Type: application/json' http://localhost:8083/connectors -d @$2 || { echo "Failed to register connector"; exit 1; }
         fi
         ;;
     # generate_schemas)
@@ -32,7 +33,7 @@ case $cmd in
     #     python generate_schemas.py --min_features 2 --max_features 10 --num_schemas 1
     #     ;;
     *)
-        echo -n "Unknown command: $cmd"
+        echo "Unknown command: $cmd"
         usage
         exit 1
         ;;

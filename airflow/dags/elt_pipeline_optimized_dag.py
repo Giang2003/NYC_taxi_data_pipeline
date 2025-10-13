@@ -112,10 +112,10 @@ def optimized_transform_data(**context):
                 "tpep_dropoff_datetime": "dropoff_datetime",
             }, inplace=True)
         
-        # Fix data types
+        # Fix data types with nullable integers to avoid NaN casting errors
         for col in ["payment_type", "dolocationid", "pulocationid", "vendorid"]:
             if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+                df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
         
         # Remove missing data
         df = df.dropna()
@@ -195,7 +195,7 @@ with DAG(
         bash_command="""
         cd /opt/airflow && 
         export POSTGRES_HOST=postgres-dw &&
-        python /opt/airflow/batch_processing_optimized.py || true
+        python /opt/airflow/batch_processing/datalake_to_dw.py || true
         """,
     )
 
